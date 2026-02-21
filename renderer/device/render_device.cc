@@ -144,6 +144,17 @@ RenderDevice::CreateDeviceResult RenderDevice::Create(
       "#canvas");
 #elif defined(OS_MACOSX)
   Diligent::MacOSNativeWindow native_window;
+  glcontext = SDL_GL_CreateContext(window_target->AsSDLWindow());
+  if (glcontext == nullptr) {
+    LOG(ERROR) << "[Renderer] SDL_GL_CreateContext failed: " << SDL_GetError();
+    return CreateDeviceResult(nullptr, nullptr);
+  }
+  if (!SDL_GL_MakeCurrent(window_target->AsSDLWindow(), glcontext)) {
+    LOG(ERROR) << "[Renderer] SDL_GL_MakeCurrent failed: " << SDL_GetError();
+    SDL_GL_DestroyContext(glcontext);
+    return CreateDeviceResult(nullptr, nullptr);
+  }
+
   void* ns_window = SDL_GetPointerProperty(
       window_properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
   native_window.pNSView = nullptr;
