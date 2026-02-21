@@ -5,6 +5,11 @@ cmake_minimum_required(VERSION 3.21)
 #--------------------------------------------------------------------------------
 
 project(URGE LANGUAGES C CXX ASM)
+if (APPLE)
+  # ObjC sources are present in multiple sibling subdirectories (e.g. SDL, physfs).
+  # Enable OBJC at the top level so all descendants have compile rules.
+  enable_language(OBJC)
+endif ()
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include_directories("${PROJECT_SOURCE_DIR}")
@@ -119,6 +124,7 @@ set(OP_DISABLE_EXAMPLES ON)
 add_subdirectory(third_party/opus)
 add_subdirectory(third_party/opusfile)
 ### WebP
+set(WEBP_BUILD_GIF2WEBP OFF CACHE BOOL "Disable gif2webp tool" FORCE)
 add_subdirectory(third_party/libwebp)
 if (NOT CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
   ### DAV1D

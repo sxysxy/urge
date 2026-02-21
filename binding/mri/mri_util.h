@@ -11,6 +11,18 @@
 #include "ruby/encoding.h"
 #include "ruby/version.h"
 
+// Ruby headers may define math macros (e.g. isfinite) that taints namespace std
+// cruby头文件定义了宏例如isfinite会污染C++ std命名空间的std::isfinite
+#ifdef isfinite
+#undef isfinite
+#endif
+#ifdef isinf
+#undef isinf
+#endif
+#ifdef isnan
+#undef isnan
+#endif
+
 #ifdef RUBY_API_VERSION_MAJOR
 #define RAPI_MAJOR RUBY_API_VERSION_MAJOR
 #define RAPI_MINOR RUBY_API_VERSION_MINOR

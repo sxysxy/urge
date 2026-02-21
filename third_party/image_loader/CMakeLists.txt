@@ -29,6 +29,12 @@ add_library(sdl_image_loader STATIC
   src/xmlman.c
 )
 
+if(APPLE)
+  target_sources(sdl_image_loader PRIVATE
+    src/IMG_ImageIO.m
+  )
+endif()
+
 target_include_directories(sdl_image_loader PUBLIC include)
 target_link_libraries(sdl_image_loader
  PUBLIC
@@ -36,6 +42,15 @@ target_link_libraries(sdl_image_loader
   webpdemux
   webpdecoder
 )
+
+if(APPLE)
+  target_link_libraries(sdl_image_loader
+    PUBLIC
+      "-framework ImageIO"
+      "-framework CoreServices"
+      "-framework Foundation"
+  )
+endif()
 
 target_compile_definitions(sdl_image_loader
  PRIVATE
