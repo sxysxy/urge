@@ -45,6 +45,8 @@ class ContentProfile {
 
   // Engine
   APIVersion api_version = APIVersion::UNKNOWN;
+  APIVersion configured_api_version = APIVersion::UNKNOWN;
+  bool api_version_auto_detected = false;
   std::string default_font_path = "Fonts/Default.ttf";
   std::string i18n_xml_path;
   base::Vec2i window_size;

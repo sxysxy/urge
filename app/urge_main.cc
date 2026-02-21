@@ -17,6 +17,7 @@
 #include "binding/mri/mri_main.h"
 #include "components/filesystem/io_service.h"
 #include "content/canvas/font_context.h"
+#include "content/profile/content_profile.h"
 #include "content/profile/i18n_profile.h"
 #include "content/worker/content_runner.h"
 #include "ui/widget/widget.h"
@@ -93,6 +94,21 @@ void CreateConsoleWin() {
   std::freopen("CONOUT$", "wb", stderr);
 }
 #endif
+
+const char* ApiVersionToString(content::ContentProfile::APIVersion version) {
+  using APIVersion = content::ContentProfile::APIVersion;
+  switch (version) {
+    case APIVersion::RGSS1:
+      return "RGSS1";
+    case APIVersion::RGSS2:
+      return "RGSS2";
+    case APIVersion::RGSS3:
+      return "RGSS3";
+    case APIVersion::UNKNOWN:
+    default:
+      return "Auto-detect";
+  }
+}
 
 int main(int argc, char* argv[]) {
 #if defined(OS_WIN)
@@ -227,6 +243,15 @@ int main(int argc, char* argv[]) {
   LOG(INFO) << "[App] Current Path: "
             << reinterpret_cast<const char*>(current_path.c_str());
   LOG(INFO) << "[App] Configure File: " << ini;
+  LOG(INFO) << "[App] Script Path: " << profile->script_path;
+  LOG(INFO) << "[App] Engine.APIVersion(configured): "
+            << static_cast<int32_t>(profile->configured_api_version) << " ("
+            << ApiVersionToString(profile->configured_api_version) << ")";
+  LOG(INFO) << "[App] RGSS API version(effective): "
+            << static_cast<int32_t>(profile->api_version) << " ("
+            << ApiVersionToString(profile->api_version) << "), source="
+            << (profile->api_version_auto_detected ? "auto-detected"
+                                                   : "configured");
 
   if (profile->game_debug)
     LOG(INFO) << "[App] Running debug test.";
