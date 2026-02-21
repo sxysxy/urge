@@ -55,9 +55,10 @@ const std::string kArrowDirsSymbol[] = {
     "UP",
 };
 
-const std::array<std::string, 12> kButtonItems = {
-    "A", "B", "C", "X", "Y", "Z", "L", "R", "DOWN", "LEFT", "RIGHT", "UP",
-};
+// Comment due to error: unused variable 'kButtonItems'
+// const std::array<std::string, 12> kButtonItems = {
+//     "A", "B", "C", "X", "Y", "Z", "L", "R", "DOWN", "LEFT", "RIGHT", "UP",
+// };
 
 }  // namespace
 

@@ -29,6 +29,7 @@
 
 #if PLATFORM_WEB
 #include <emscripten/html5_webgpu.h>
+#include <third_party/DiligentCore/Platforms/Emscripten/interface/EmscriptenNativeWindow.h>
 #endif
 
 #include "base/debug/logging.h"
@@ -36,7 +37,18 @@
 
 #if defined(OS_ANDROID)
 #include "Graphics/GraphicsEngineOpenGL/interface/RenderDeviceGLES.h"
+#include <third_party/DiligentCore/Platforms/Android/interface/AndroidNativeWindow.h>
+#elif defined(OS_MACOSX)
+#include <objc/objc.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
+#include <third_party/DiligentCore/Platforms/Apple/interface/MacOSNativeWindow.h>
+#elif defined(OS_WIN)
+#include <third_party/DiligentCore/Platforms/Win32/interface/Win32NativeWindow.h>
+#elif defined(OS_LINUX)
+#include <third_party/DiligentCore/Platforms/Linux/interface/LinuxNativeWindow.h>
 #endif
+
 
 namespace renderer {
 
@@ -82,17 +94,19 @@ RenderDevice::CreateDeviceResult RenderDevice::Create(
   Diligent::SetDebugMessageCallback(DebugMessageOutputFunc);
 
   // Setup native window
-  Diligent::NativeWindow native_window;
+  // Diligent::NativeWindow native_window;
   SDL_PropertiesID window_properties =
       SDL_GetWindowProperties(window_target->AsSDLWindow());
 
   // Setup specific platform window handle
   SDL_GLContext glcontext = nullptr;
 #if defined(OS_WIN)
+  Diligent::Win32NativeWindow native_window;
   native_window.hWnd = SDL_GetPointerProperty(
       window_properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
 #elif defined(OS_LINUX)
   // Xlib Display Port
+  Diligent::LinuxNativeWindow native_window;
   void* xdisplay = SDL_GetPointerProperty(
       window_properties, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
   int64_t xwindow = SDL_GetNumberProperty(window_properties,
@@ -120,12 +134,37 @@ RenderDevice::CreateDeviceResult RenderDevice::Create(
   native_window.pXCBConnection =
       xgetxcb_func ? xgetxcb_func(xdisplay) : nullptr;
 #elif defined(OS_ANDROID)
+  Diligent::AndroidNativeWindow native_window;
   native_window.pAWindow = SDL_GetPointerProperty(
       window_properties, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
 #elif defined(OS_EMSCRIPTEN)
+  Diligent::EmscriptenNativeWindow native_window;
   native_window.pCanvasId = SDL_GetStringProperty(
       window_properties, SDL_PROP_WINDOW_EMSCRIPTEN_CANVAS_ID_STRING,
       "#canvas");
+#elif defined(OS_MACOSX)
+  Diligent::MacOSNativeWindow native_window;
+  glcontext = SDL_GL_CreateContext(window_target->AsSDLWindow());
+  if (glcontext == nullptr) {
+    LOG(ERROR) << "[Renderer] SDL_GL_CreateContext failed: " << SDL_GetError();
+    return CreateDeviceResult(nullptr, nullptr);
+  }
+  if (!SDL_GL_MakeCurrent(window_target->AsSDLWindow(), glcontext)) {
+    LOG(ERROR) << "[Renderer] SDL_GL_MakeCurrent failed: " << SDL_GetError();
+    SDL_GL_DestroyContext(glcontext);
+    return CreateDeviceResult(nullptr, nullptr);
+  }
+
+  void* ns_window = SDL_GetPointerProperty(
+      window_properties, SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+  native_window.pNSView = nullptr;
+  if (ns_window) {
+    using ContentViewGetter = void* (*)(void*, SEL);
+    auto get_content_view =
+        reinterpret_cast<ContentViewGetter>(objc_msgSend);
+    native_window.pNSView =
+        get_content_view(ns_window, sel_registerName("contentView"));
+  }
 #else
 #error "Unsupport Platform"
 #endif
@@ -164,6 +203,14 @@ RenderDevice::CreateDeviceResult RenderDevice::Create(
   switch (driver_type) {
     case DriverType::OPENGL:
     case DriverType::WEBGPU:
+      break;
+    default:
+      driver_type = DriverType::OPENGL;
+      break;
+  }
+#elif defined(OS_MACOSX)
+   switch (driver_type) {
+    case DriverType::OPENGL:
       break;
     default:
       driver_type = DriverType::OPENGL;
