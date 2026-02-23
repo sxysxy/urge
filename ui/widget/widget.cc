@@ -7,6 +7,8 @@
 #include "SDL3/SDL_events.h"
 #include "SDL3/SDL_video.h"
 
+#include "base/buildflags/build.h"
+
 #include <mutex>
 
 namespace ui {
@@ -89,6 +91,16 @@ void Widget::Init(InitParams params) {
   SDL_SetBooleanProperty(property_id,
                          SDL_PROP_WINDOW_CREATE_ALWAYS_ON_TOP_BOOLEAN,
                          params.always_on_top);
+
+#if defined(OS_MACOSX)
+  // Required by SDL on macOS for SDL_GL_CreateContext().
+  SDL_SetBooleanProperty(property_id, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN,
+                         true);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_FLAGS, SDL_GL_CONTEXT_FORWARD_COMPATIBLE_FLAG); 
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
+#endif
 
   // No internal graphics context manager
   SDL_SetBooleanProperty(

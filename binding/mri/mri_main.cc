@@ -201,7 +201,9 @@ void BindingEngineMri::PreEarlyInitialization(
 #endif
 
   LOG(INFO) << "[Binding] CRuby Interpreter Version: " << RUBY_API_VERSION_CODE;
+#ifndef OS_MACOSX   // RUBY_PLATFORM macro causes compile error on macos
   LOG(INFO) << "[Binding] CRuby Interpreter Platform: " << RUBY_PLATFORM;
+#endif
 
   VALUE debug = MRI_BOOL_VALUE(profile->game_debug);
   if (profile->api_version < content::ContentProfile::APIVersion::RGSS2)
