@@ -4,8 +4,14 @@
 
 #include "components/filesystem/io_service.h"
 
+#include <algorithm>
+#include <cstring>
+#include <unordered_set>
+
 #include "SDL3/SDL_system.h"
 #include "physfs.h"
+
+#include "components/filesystem/rgss_archive.h"
 
 #if defined(OS_ANDROID)
 #include <jni.h>
@@ -142,6 +148,11 @@ struct OpenReadEnumData {
   OpenReadEnumData() = default;
 };
 
+struct MemoryBufferData {
+  std::vector<uint8_t> bytes;
+  size_t offset = 0;
+};
+
 PHYSFS_EnumerateCallbackResult OpenReadEnumCallback(void* data,
                                                     const char* origdir,
                                                     const char* fname) {
@@ -186,6 +197,87 @@ PHYSFS_EnumerateCallbackResult OpenReadEnumCallback(void* data,
   return PHYSFS_ENUM_OK;
 }
 
+Sint64 MemRWopsSize(void* userdata) {
+  auto* mem = static_cast<MemoryBufferData*>(userdata);
+  if (!mem)
+    return -1;
+  return static_cast<Sint64>(mem->bytes.size());
+}
+
+Sint64 MemRWopsSeek(void* userdata, int64_t offset, SDL_IOWhence whence) {
+  auto* mem = static_cast<MemoryBufferData*>(userdata);
+  if (!mem)
+    return -1;
+
+  int64_t base = 0;
+  switch (whence) {
+    default:
+    case SDL_IO_SEEK_SET:
+      base = 0;
+      break;
+    case SDL_IO_SEEK_CUR:
+      base = static_cast<int64_t>(mem->offset);
+      break;
+    case SDL_IO_SEEK_END:
+      base = static_cast<int64_t>(mem->bytes.size());
+      break;
+  }
+
+  int64_t target = base + offset;
+  if (target < 0)
+    return -1;
+  if (target > static_cast<int64_t>(mem->bytes.size()))
+    target = static_cast<int64_t>(mem->bytes.size());
+  mem->offset = static_cast<size_t>(target);
+  return target;
+}
+
+size_t MemRWopsRead(void* userdata,
+                    void* buffer,
+                    size_t size,
+                    SDL_IOStatus* status) {
+  auto* mem = static_cast<MemoryBufferData*>(userdata);
+  if (!mem || !buffer)
+    return 0;
+
+  if (mem->offset >= mem->bytes.size())
+    return 0;
+
+  const size_t rest = mem->bytes.size() - mem->offset;
+  const size_t read_size = std::min(rest, size);
+  memcpy(buffer, mem->bytes.data() + mem->offset, read_size);
+  mem->offset += read_size;
+  return read_size;
+}
+
+size_t MemRWopsWrite(void* userdata,
+                     const void* buffer,
+                     size_t size,
+                     SDL_IOStatus* status) {
+  return 0;
+}
+
+bool MemRWopsClose(void* userdata) {
+  auto* mem = static_cast<MemoryBufferData*>(userdata);
+  delete mem;
+  return true;
+}
+
+SDL_IOStream* WrapperMemRWops(std::vector<uint8_t>&& bytes) {
+  auto* mem = new MemoryBufferData;
+  mem->bytes = std::move(bytes);
+  mem->offset = 0;
+
+  SDL_IOStreamInterface iface;
+  SDL_INIT_INTERFACE(&iface);
+  iface.size = MemRWopsSize;
+  iface.seek = MemRWopsSeek;
+  iface.read = MemRWopsRead;
+  iface.write = MemRWopsWrite;
+  iface.close = MemRWopsClose;
+  return SDL_OpenIO(&iface, mem);
+}
+
 }  // namespace
 
 std::unique_ptr<IOService> IOService::Create(const std::string& argv0) {
@@ -225,6 +317,18 @@ int32_t IOService::AddLoadPath(const std::string& new_path,
     password = new_path.substr(pos + 1);
   }
 
+  if (RgssArchive::IsSupportedArchivePath(real_filename)) {
+    auto archive = std::make_unique<RgssArchive>();
+    std::string archive_error;
+    if (archive->Open(real_filename, mount_point, &archive_error)) {
+      rgss_archives_.push_back(std::move(archive));
+      return 1;
+    }
+
+    LOG(INFO) << "[IOService] Failed to load RGSS archive \"" << real_filename
+              << "\": " << archive_error;
+  }
+
   if (!password.empty())
     PHYSFS_setZipPassword(password.c_str());
   else
@@ -242,11 +346,20 @@ int32_t IOService::RemoveLoadPath(const std::string& old_path) {
 }
 
 bool IOService::Exists(const std::string& filename) {
-  return PHYSFS_exists(filename.c_str());
+  if (PHYSFS_exists(filename.c_str()))
+    return true;
+
+  for (const auto& archive : rgss_archives_) {
+    if (archive->Contains(filename))
+      return true;
+  }
+
+  return false;
 }
 
 std::vector<std::string> IOService::EnumDir(const std::string& dir) {
   std::vector<std::string> files;
+  std::unordered_set<std::string> dedup;
 
   PHYSFS_enumerate(
       dir.c_str(),
@@ -258,6 +371,18 @@ std::vector<std::string> IOService::EnumDir(const std::string& dir) {
         return PHYSFS_ENUM_OK;
       },
       &files);
+
+  for (const auto& file : files)
+    dedup.insert(file);
+
+  for (const auto& archive : rgss_archives_) {
+    std::vector<std::string> archive_files;
+    archive->EnumerateDir(dir, &archive_files);
+    for (const auto& file : archive_files) {
+      if (dedup.insert(file).second)
+        files.push_back(file);
+    }
+  }
 
   return files;
 }
@@ -302,6 +427,26 @@ void IOService::OpenRead(const std::string& file_path,
     return;
   }
 
+  if (data.match_count <= 0) {
+    std::string ext_name;
+    std::vector<uint8_t> buffer;
+    for (const auto& archive : rgss_archives_) {
+      std::string archive_error;
+      if (!archive->ExtractByPath(file_path, &buffer, &ext_name, &archive_error))
+        continue;
+
+      SDL_IOStream* ops = WrapperMemRWops(std::move(buffer));
+      if (callback.Run(ops, ext_name)) {
+        data.match_count++;
+        break;
+      }
+
+      SDL_CloseIO(ops);
+      data.match_count++;
+      break;
+    }
+  }
+
   if (data.match_count <= 0 && io_state) {
     io_state->error_count++;
     io_state->error_message = "No file match: " + file_path;
@@ -318,6 +463,14 @@ SDL_IOStream* IOService::OpenReadRaw(const std::string& filename,
 
   PHYSFS_File* file = PHYSFS_openRead(filename.c_str());
   if (!file) {
+    std::vector<uint8_t> buffer;
+    for (const auto& archive : rgss_archives_) {
+      std::string archive_error;
+      if (!archive->ExtractByPath(filename, &buffer, nullptr, &archive_error))
+        continue;
+      return WrapperMemRWops(std::move(buffer));
+    }
+
     if (io_state) {
       io_state->error_count++;
       io_state->error_message =
