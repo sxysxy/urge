@@ -101,6 +101,8 @@ set(BINDING_MRI_SRC
   mri_file.h
   mri_main.cc
   mri_main.h
+  mri_win32api.cc
+  mri_win32api.h
   mri_util.cc
   mri_util.h
 

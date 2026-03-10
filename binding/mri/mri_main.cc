@@ -14,6 +14,8 @@
 #include "binding/mri/mri_file.h"
 #include "binding/mri/mri_init_autogen.h"
 #include "binding/mri/platform/mri_emscripten.h"
+#include "binding/mri/mri_win32api.h"
+#include "components/filesystem/io_service.h"
 
 #ifdef HAVE_GET_MACHINE_HASH
 #include "admenri/machineid/machineid.h"
@@ -31,6 +33,14 @@ content::ExecutionContext* g_current_execution_context = nullptr;
 extern filesystem::IOService* g_io_service;
 
 namespace {
+
+bool ShouldUseWin32APICompatShim() {
+#if defined(OS_WIN)
+  return RAPI_MAJOR >= 3;
+#else
+  return true;
+#endif
+}
 
 VALUE EvalString(VALUE string, VALUE filename, int32_t* state) {
   using EvaluteContext = struct {
@@ -83,6 +93,54 @@ void MriProcessReset() {
   MriGetGlobalModules()->Audio->Reset(exception_state);
   MriGetGlobalModules()->URGE->Reset(exception_state);
   MriProcessException(exception_state);
+}
+
+void TryLoadExternalWin32API(content::ExceptionState& exception_state) {
+  if (!ShouldUseWin32APICompatShim())
+    return;
+
+  constexpr char kWin32APIScript[] = "Win32API.rb";
+  if (!g_io_service || !g_io_service->Exists(kWin32APIScript))
+    return;
+
+  filesystem::IOState io_state;
+  SDL_IOStream* stream = g_io_service->OpenReadRaw(kWin32APIScript, &io_state);
+  if (io_state.error_count || !stream) {
+    LOG(WARNING) << "[Binding] Failed to open external Win32API.rb: "
+                 << io_state.error_message;
+    return;
+  }
+
+  Sint64 file_size = SDL_SeekIO(stream, 0, SDL_IO_SEEK_END);
+  if (file_size < 0 || SDL_SeekIO(stream, 0, SDL_IO_SEEK_SET) < 0) {
+    SDL_CloseIO(stream);
+    LOG(WARNING) << "[Binding] Failed to read external Win32API.rb: "
+                 << SDL_GetError();
+    return;
+  }
+
+  std::string source(static_cast<size_t>(file_size), '\0');
+  size_t read_size = SDL_ReadIO(stream, source.data(), source.size());
+  SDL_CloseIO(stream);
+  if (read_size != source.size()) {
+    LOG(WARNING) << "[Binding] Failed to read full Win32API.rb content.";
+    return;
+  }
+
+  int32_t state = 0;
+  EvalString(rb_str_new(source.data(), static_cast<long>(source.size())),
+             rb_str_new_cstr(kWin32APIScript), &state);
+  if (state) {
+    VALUE exception = rb_errinfo();
+    rb_set_errinfo(Qnil);
+    std::string info = ParseExeceptionInfo(exception);
+    exception_state.ThrowError(content::ExceptionCode::CONTENT_ERROR,
+                               "Failed to load Win32API.rb:\n%s",
+                               info.c_str());
+    return;
+  }
+
+  LOG(INFO) << "[Binding] Loaded external Win32API.rb override.";
 }
 
 static VALUE RescueCallBlock(VALUE block) {
@@ -174,6 +232,8 @@ void BindingEngineMri::PreEarlyInitialization(
 
   // marshal data reader
   InitCoreFileBinding();
+  if (ShouldUseWin32APICompatShim())
+    InitWin32APIBinding();
 
   // URGE autogen bindings
   InitMriAutogen();
@@ -200,7 +260,8 @@ void BindingEngineMri::PreEarlyInitialization(
                           ADMENRI_getMachineHash);
 #endif
 
-  LOG(INFO) << "[Binding] CRuby Interpreter Version: " << RUBY_API_VERSION_CODE;
+  //LOG(INFO) << "[Binding] CRuby Interpreter Version: " << RUBY_API_VERSION_CODE;
+  LOG(INFO) << "[Binding] CRuby Interpreter Version: " << RUBY_API_VERSION_MAJOR << "." << RUBY_API_VERSION_MINOR << "." << RUBY_API_VERSION_TEENY;
 #ifndef OS_MACOSX   // RUBY_PLATFORM macro causes compile error on macos
   LOG(INFO) << "[Binding] CRuby Interpreter Platform: " << RUBY_PLATFORM;
 #endif
@@ -228,6 +289,16 @@ void BindingEngineMri::OnMainMessageLoopRun(
 
   // Run packed scripts
   content::ExceptionState exception_state;
+  // Allowing external patching scripts maybe unsafe...
+  // TryLoadExternalWin32API(exception_state);
+  if (exception_state.HadException()) {
+    std::string error_message;
+    exception_state.FetchException(error_message);
+    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "URGE",
+                             error_message.c_str(), nullptr);
+    return;
+  }
+
   LoadPackedScripts(profile_, exception_state);
   if (exception_state.HadException()) {
     std::string error_message;

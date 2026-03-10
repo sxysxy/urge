@@ -181,10 +181,13 @@ bool ContentProfile::LoadConfigure(const std::string& app) {
   }
 
   // Engine
-  api_version = static_cast<APIVersion>(reader->GetInteger(
+  configured_api_version = static_cast<APIVersion>(reader->GetInteger(
       "Engine", "APIVersion", static_cast<int32_t>(api_version)));
+  api_version = configured_api_version;
+  api_version_auto_detected = false;
   if (api_version == APIVersion::UNKNOWN) {
     if (!script_path.empty()) {
+      api_version_auto_detected = true;
       api_version = APIVersion::RGSS1;
 
       const char* p = &script_path[script_path.size()];
