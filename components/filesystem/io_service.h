@@ -5,6 +5,10 @@
 #ifndef COMPONENTS_FILESYSTEM_IO_SERVICE_H_
 #define COMPONENTS_FILESYSTEM_IO_SERVICE_H_
 
+#include <memory>
+#include <string>
+#include <vector>
+
 #include "SDL3/SDL_iostream.h"
 
 #include "base/bind/callback.h"
@@ -12,6 +16,8 @@
 #include "base/memory/weak_ptr.h"
 
 namespace filesystem {
+
+class RgssArchive;
 
 struct IOState {
   int32_t error_count;
@@ -50,6 +56,8 @@ class IOService {
 
  private:
   IOService() = default;
+
+  std::vector<std::unique_ptr<RgssArchive>> rgss_archives_;
 };
 
 }  // namespace filesystem

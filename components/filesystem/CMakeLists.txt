@@ -8,6 +8,8 @@ cmake_minimum_required(VERSION 3.20.1)
 set(COMPONENTS_FILESYSTEM_SRC
   io_service.cc
   io_service.h
+  rgss_archive.cc
+  rgss_archive.h
 )
 
 add_library(components_filesystem STATIC ${COMPONENTS_FILESYSTEM_SRC})

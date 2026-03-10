@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <filesystem>
+#include <array>
 
 #include "SDL3/SDL_main.h"
 #include "SDL3/SDL_messagebox.h"
@@ -190,6 +191,15 @@ int main(int argc, char* argv[]) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "URGE",
                              error_message.c_str(), nullptr);
     return 1;
+  }
+
+  const std::array<const char*, 3> rgss_archives = {"Game.rgssad",
+                                                     "Game.rgss2a",
+                                                     "Game.rgss3a"};
+  for (const char* archive_name : rgss_archives) {
+    if (!std::filesystem::exists(archive_name))
+      continue;
+    io_service->AddLoadPath(archive_name, "", false);
   }
 
 #if defined(OS_WIN)
